@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Sleep Nights - Prisma Monitor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Nightly Sleep Data</h1>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Sessions</th>
+            <th>Duration</th>
+            <th>AHI</th>
+            <th>Severity</th>
+            <th>Apneas</th>
+            <th>Hypopneas</th>
+            <th>RERAs</th>
+            <th>Snoring</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in summaries %}
+        {% if s.has_data %}
+        <tr>
+            <td><strong>{{ s.display_date }}</strong></td>
+            <td>{{ s.session_count }}</td>
+            <td>{{ "{:.1}"|format(s.therapy_hours) }}h</td>
+            <td class="text-{{ s.severity|lower }}">
+                <strong>{{ "{:.1}"|format(s.ahi) }}</strong>
+            </td>
+            <td>
+                <span class="severity-badge severity-badge-{{ s.severity|lower }}">{{ s.severity }}</span>
+            </td>
+            <td>
+                <div class="cell-bar-wrap">
+                    <span>{{ s.apneas }}</span>
+                    <div class="cell-bar cell-bar-apnea" style="width: {{ s.apneas * 100 / max_apneas }}%"></div>
+                </div>
+            </td>
+            <td>
+                <div class="cell-bar-wrap">
+                    <span>{{ s.hypopneas }}</span>
+                    <div class="cell-bar cell-bar-hypopnea" style="width: {{ s.hypopneas * 100 / max_hypopneas }}%"></div>
+                </div>
+            </td>
+            <td>{{ s.reras }}</td>
+            <td>
+                <div class="cell-bar-wrap">
+                    <span>{{ s.snoring }}</span>
+                    <div class="cell-bar cell-bar-snore" style="width: {{ s.snoring * 100 / max_snoring }}%"></div>
+                </div>
+            </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

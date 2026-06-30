@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Prisma Monitor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Therapy Dashboard</h1>
+    <p class="subtitle">{{ device_name }}</p>
+</div>
+
+<!-- Hero Cards -->
+<div class="hero-cards">
+    <div class="hero-card {% if stats.ahi < 5.0 %}severity-normal{% elif stats.ahi < 15.0 %}severity-mild{% elif stats.ahi < 30.0 %}severity-moderate{% else %}severity-severe{% endif %}">
+        <div class="hero-gauge">
+            <canvas id="ahiGauge" width="120" height="120"></canvas>
+        </div>
+        <div class="hero-info">
+            <div class="hero-label">AHI</div>
+            <div class="hero-value">{{ "{:.1}"|format(stats.ahi) }}</div>
+            <div class="hero-badge severity-badge-{{ stats.severity|lower }}">{{ stats.severity }}</div>
+        </div>
+    </div>
+
+    <div class="hero-card">
+        <div class="hero-icon">&#9201;</div>
+        <div class="hero-info">
+            <div class="hero-label">Total Therapy</div>
+            <div class="hero-value">{{ "{:.1}"|format(stats.total_therapy_hours) }}h</div>
+            <div class="hero-sub">Avg {{ "{:.1}"|format(stats.avg_session_hours) }}h/night</div>
+        </div>
+    </div>
+
+    <div class="hero-card {% if stats.avg_session_hours >= 6.0 %}severity-normal{% elif stats.avg_session_hours >= 4.0 %}severity-mild{% else %}severity-severe{% endif %}">
+        <div class="hero-icon">&#9989;</div>
+        <div class="hero-info">
+            <div class="hero-label">Compliance</div>
+            <div class="hero-value">{{ "{:.1}"|format(stats.avg_session_hours) }}h</div>
+            <div class="hero-sub">{% if stats.avg_session_hours >= 6.0 %}Good (target: 6h+){% elif stats.avg_session_hours >= 4.0 %}Borderline{% else %}Low{% endif %}</div>
+        </div>
+    </div>
+
+    <div class="hero-card">
+        <div class="hero-icon">&#128200;</div>
+        <div class="hero-info">
+            <div class="hero-label">Nights</div>
+            <div class="hero-value">{{ stats.sessions_with_data }}</div>
+            <div class="hero-sub">of {{ stats.total_sessions }} total</div>
+        </div>
+    </div>
+</div>
+
+<!-- Event Summary Bar -->
+<div class="event-summary-bar">
+    <div class="event-chip event-apnea"><span class="chip-count">{{ stats.total_apneas }}</span> Apneas</div>
+    <div class="event-chip event-hypopnea"><span class="chip-count">{{ stats.total_hypopneas }}</span> Hypopneas</div>
+    <div class="event-chip event-rera"><span class="chip-count">{{ stats.total_reras }}</span> RERAs</div>
+    <div class="event-chip event-snore"><span class="chip-count">{{ stats.total_snoring }}</span> Snoring</div>
+    {% if stats.total_alerts > 0 %}
+    <div class="event-chip event-alert"><span class="chip-count">{{ stats.total_alerts }}</span> Alerts</div>
+    {% endif %}
+    {% if stats.total_desaturations > 0 %}
+    <div class="event-chip event-desat"><span class="chip-count">{{ stats.total_desaturations }}</span> Desaturations</div>
+    {% endif %}
+</div>
+
+<!-- AHI/RDI Trend with Severity Zones -->
+<div class="chart-container">
+    <h2>AHI / RDI Trend</h2>
+    <canvas id="ahiTrendChart" height="80"></canvas>
+</div>
+
+<!-- Two-column charts -->
+<div class="chart-row">
+    <div class="chart-container chart-half">
+        <h2>Session Duration</h2>
+        <canvas id="durationChart" height="100"></canvas>
+    </div>
+    <div class="chart-container chart-half">
+        <h2>Event Distribution per Session</h2>
+        <canvas id="stackedEventsChart" height="100"></canvas>
+    </div>
+</div>
+
+<!-- Recent Sessions Table -->
+<div class="chart-container">
+    <h2>Recent Nights</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Sessions</th>
+                <th>Duration</th>
+                <th>AHI</th>
+                <th>Severity</th>
+                <th>Apneas</th>
+                <th>Hypopneas</th>
+                <th>RERAs</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in recent_sessions %}
+            <tr>
+                <td><strong>{{ s.display_date }}</strong></td>
+                <td>{{ s.session_count }}</td>
+                <td>{{ "{:.1}"|format(s.therapy_hours) }}h</td>
+                <td class="text-{{ s.severity|lower }}">{{ "{:.1}"|format(s.ahi) }}</td>
+                <td><span class="severity-badge severity-badge-{{ s.severity|lower }}">{{ s.severity }}</span></td>
+                <td>{{ s.apneas }}</td>
+                <td>{{ s.hypopneas }}</td>
+                <td>{{ s.reras }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+// AHI Gauge (doughnut)
+const ahiVal = {{ "{:.1}"|format(stats.ahi) }};
+const maxAhi = Math.max(ahiVal * 2, 10);
+const gaugeColor = ahiVal < 5 ? '#22c55e' : ahiVal < 15 ? '#eab308' : ahiVal < 30 ? '#f97316' : '#ef4444';
+new Chart(document.getElementById('ahiGauge').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+        datasets: [{
+            data: [ahiVal, Math.max(0, maxAhi - ahiVal)],
+            backgroundColor: [gaugeColor, '#f1f5f9'],
+            borderWidth: 0,
+        }]
+    },
+    options: {
+        cutout: '75%',
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        rotation: -90,
+        circumference: 180,
+        responsive: false,
+    }
+});
+
+// AHI/RDI Trend with severity zones
+const ahiTrendCtx = document.getElementById('ahiTrendChart').getContext('2d');
+const chartAreaPlugin = {
+    id: 'severityZones',
+    beforeDraw(chart) {
+        const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
+        const zones = [
+            { min: 0, max: 5, color: 'rgba(34,197,94,0.08)' },
+            { min: 5, max: 15, color: 'rgba(234,179,8,0.08)' },
+            { min: 15, max: 30, color: 'rgba(249,115,22,0.08)' },
+            { min: 30, max: 100, color: 'rgba(239,68,68,0.08)' },
+        ];
+        zones.forEach(z => {
+            const yTop = y.getPixelForValue(Math.min(z.max, y.max));
+            const yBot = y.getPixelForValue(z.min);
+            if (yBot > top && yTop < bottom) {
+                ctx.fillStyle = z.color;
+                ctx.fillRect(left, Math.max(yTop, top), right - left, Math.min(yBot, bottom) - Math.max(yTop, top));
+            }
+        });
+    }
+};
+new Chart(ahiTrendCtx, {
+    type: 'line',
+    plugins: [chartAreaPlugin],
+    data: {
+        labels: {{ session_labels_json|safe }},
+        datasets: [
+            {
+                label: 'AHI',
+                data: {{ session_ahi_json|safe }},
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239,68,68,0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                borderWidth: 2,
+            },
+            {
+                label: 'RDI',
+                data: {{ session_rdi_json|safe }},
+                borderColor: '#8b5cf6',
+                borderDash: [5, 5],
+                tension: 0.3,
+                pointRadius: 3,
+                borderWidth: 1.5,
+                fill: false,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Events / Hour' },
+                grid: { color: '#f1f5f9' },
+            },
+            x: { grid: { display: false } }
+        },
+        plugins: {
+            legend: { position: 'top' },
+        }
+    }
+});
+
+// Session Duration bar chart
+new Chart(document.getElementById('durationChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: {{ session_labels_json|safe }},
+        datasets: [{
+            label: 'Hours',
+            data: {{ session_hours_json|safe }},
+            backgroundColor: {{ session_hours_json|safe }}.map(h => h >= 6 ? '#22c55e' : h >= 4 ? '#eab308' : '#ef4444'),
+            borderRadius: 3,
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Hours' },
+            },
+            x: { grid: { display: false } }
+        },
+        plugins: {
+            legend: { display: false },
+            annotation: {
+                annotations: {
+                    complianceLine: {
+                        type: 'line', yMin: 6, yMax: 6,
+                        borderColor: '#22c55e', borderDash: [5, 5], borderWidth: 1,
+                    }
+                }
+            }
+        }
+    }
+});
+
+// Stacked Events chart
+new Chart(document.getElementById('stackedEventsChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: {{ session_labels_json|safe }},
+        datasets: [
+            { label: 'Apneas', data: {{ session_apneas_json|safe }}, backgroundColor: '#ef4444', borderRadius: 2 },
+            { label: 'Hypopneas', data: {{ session_hypopneas_json|safe }}, backgroundColor: '#f97316', borderRadius: 2 },
+            { label: 'RERAs', data: {{ session_reras_json|safe }}, backgroundColor: '#8b5cf6', borderRadius: 2 },
+            { label: 'Snoring', data: {{ session_snoring_json|safe }}, backgroundColor: '#3b82f6', borderRadius: 2 },
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            x: { stacked: true, grid: { display: false } },
+            y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Events' } }
+        },
+        plugins: { legend: { position: 'top' } }
+    }
+});
+</script>
+{% endblock %}

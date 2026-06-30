@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Upload - Prisma Monitor{% endblock %}
+{% block content %}
+<h1>Upload Therapy Data</h1>
+
+{% if has_data %}
+<div class="alert">Data already loaded. Uploading new files will replace existing data.</div>
+{% endif %}
+
+<form action="/api/upload" method="post" enctype="multipart/form-data" class="upload-form">
+    <div class="form-group">
+        <label for="pdat">Therapy Data (.pdat)</label>
+        <input type="file" id="pdat" name="pdat" accept=".pdat">
+        <small>Contains session events and signal data</small>
+    </div>
+    <div class="form-group">
+        <label for="pcfg">Configuration (.pcfg) - optional</label>
+        <input type="file" id="pcfg" name="pcfg" accept=".pcfg">
+        <small>Contains device configuration</small>
+    </div>
+    <button type="submit" class="btn">Upload &amp; Analyze</button>
+</form>
+{% endblock %}

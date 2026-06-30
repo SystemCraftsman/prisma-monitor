@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Session #{{ key }} - Prisma Monitor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Session #{{ key }}</h1>
+    <a href="/sessions" class="btn btn-outline">&larr; All Sessions</a>
+</div>
+
+<!-- Summary Cards -->
+<div class="cards">
+    <div class="card card-sm {% if ahi < 5.0 %}severity-normal{% elif ahi < 15.0 %}severity-mild{% elif ahi < 30.0 %}severity-moderate{% else %}severity-severe{% endif %}">
+        <div class="card-label">AHI</div>
+        <div class="card-value">{{ "{:.1}"|format(ahi) }}</div>
+        <div class="card-sub"><span class="severity-badge severity-badge-{{ severity|lower }}">{{ severity }}</span></div>
+    </div>
+    <div class="card card-sm">
+        <div class="card-label">Duration</div>
+        <div class="card-value">{{ "{:.1}"|format(therapy_hours) }}h</div>
+    </div>
+    <div class="card card-sm">
+        <div class="card-label">Apneas</div>
+        <div class="card-value card-apnea">{{ apneas }}</div>
+    </div>
+    <div class="card card-sm">
+        <div class="card-label">Hypopneas</div>
+        <div class="card-value card-hypopnea">{{ hypopneas }}</div>
+    </div>
+    <div class="card card-sm">
+        <div class="card-label">RERAs</div>
+        <div class="card-value card-rera">{{ reras }}</div>
+    </div>
+    <div class="card card-sm">
+        <div class="card-label">Snoring</div>
+        <div class="card-value card-snore">{{ snoring }}</div>
+    </div>
+</div>
+
+<div class="cards">
+    <div class="card card-sm">
+        <div class="card-label">Avg Event Duration</div>
+        <div class="card-value">{{ "{:.1}"|format(avg_duration) }}s</div>
+    </div>
+    {% if alerts > 0 %}
+    <div class="card card-sm severity-mild">
+        <div class="card-label">Alerts</div>
+        <div class="card-value">{{ alerts }}</div>
+    </div>
+    {% endif %}
+    {% if disconnections > 0 %}
+    <div class="card card-sm">
+        <div class="card-label">Disconnections</div>
+        <div class="card-value">{{ disconnections }}</div>
+    </div>
+    {% endif %}
+    {% if desaturations > 0 %}
+    <div class="card card-sm severity-severe">
+        <div class="card-label">Desaturations</div>
+        <div class="card-value">{{ desaturations }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Apnea/Hypopnea Subtype Breakdown -->
+<div class="chart-row">
+    <div class="chart-container chart-half">
+        <h2>Apnea Subtypes</h2>
+        <canvas id="apneaSubChart"></canvas>
+    </div>
+    <div class="chart-container chart-half">
+        <h2>Hypopnea Subtypes</h2>
+        <canvas id="hypopneaSubChart"></canvas>
+    </div>
+</div>
+
+<!-- Event Timeline -->
+<div class="chart-container">
+    <h2>Event Timeline</h2>
+    <p class="chart-desc">Events throughout the therapy session, colored by type. Hover for details.</p>
+    <canvas id="timelineChart" height="70"></canvas>
+</div>
+
+<!-- Hourly AHI -->
+<div class="chart-container">
+    <h2>Hourly AHI</h2>
+    <p class="chart-desc">AHI calculated for each hour of therapy. Identifies problematic periods during the night.</p>
+    <canvas id="hourlyAhiChart" height="60"></canvas>
+</div>
+
+<!-- Two-column: Pressure Scatter + Duration Histogram -->
+<div class="chart-row">
+    <div class="chart-container chart-half">
+        <h2>Pressure vs Duration</h2>
+        <p class="chart-desc">Relationship between therapy pressure and event duration.</p>
+        <canvas id="pressureChart"></canvas>
+    </div>
+    <div class="chart-container chart-half">
+        <h2>Event Duration Distribution</h2>
+        <p class="chart-desc">How long events last, grouped by type.</p>
+        <canvas id="durationHistChart"></canvas>
+    </div>
+</div>
+
+<script>
+const COLORS = {
+    Apnea: '#ef4444', Hypopnea: '#f97316', RERA: '#8b5cf6',
+    Snore: '#3b82f6', Other: '#64748b'
+};
+const SUB_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#f97316', '#8b5cf6'];
+
+// Apnea Subtypes
+const apneaSub = {{ apnea_subtypes_json|safe }};
+new Chart(document.getElementById('apneaSubChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: apneaSub.labels,
+        datasets: [{
+            data: apneaSub.values,
+            backgroundColor: SUB_COLORS,
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+            y: { grid: { display: false } }
+        }
+    }
+});
+
+// Hypopnea Subtypes
+const hypoSub = {{ hypopnea_subtypes_json|safe }};
+new Chart(document.getElementById('hypopneaSubChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: hypoSub.labels,
+        datasets: [{
+            data: hypoSub.values,
+            backgroundColor: SUB_COLORS,
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+            y: { grid: { display: false } }
+        }
+    }
+});
+
+// Event Timeline
+const timeline = {{ timeline_json|safe }};
+const categories = [...new Set(timeline.map(e => e.category))];
+const tlDatasets = categories.map(cat => ({
+    label: cat,
+    data: timeline.filter(e => e.category === cat)
+        .map(e => ({ x: e.time, y: e.duration })),
+    backgroundColor: COLORS[cat] || '#64748b',
+    pointRadius: 4,
+    pointHoverRadius: 6,
+}));
+new Chart(document.getElementById('timelineChart').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: tlDatasets },
+    options: {
+        responsive: true,
+        scales: {
+            x: { title: { display: true, text: 'Time (hours from start)' }, beginAtZero: true, grid: { color: '#f8fafc' } },
+            y: { title: { display: true, text: 'Duration (seconds)' }, beginAtZero: true, grid: { color: '#f1f5f9' } }
+        },
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: (ctx) => {
+                        const d = timeline.filter(e => e.category === ctx.dataset.label)
+                            .find(e => e.time === ctx.parsed.x && e.duration === ctx.parsed.y);
+                        if (d) return `${d.name} | ${d.duration}s | ${d.pressure} cmH2O`;
+                        return `${ctx.dataset.label}: ${ctx.parsed.y}s`;
+                    }
+                }
+            }
+        }
+    }
+});
+
+// Hourly AHI
+const hourlyData = {{ hourly_ahi_json|safe }};
+const hourlyLabels = {{ hourly_labels_json|safe }};
+new Chart(document.getElementById('hourlyAhiChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: hourlyLabels,
+        datasets: [{
+            label: 'Events per hour',
+            data: hourlyData,
+            backgroundColor: hourlyData.map(v => v < 5 ? '#22c55e' : v < 15 ? '#eab308' : v < 30 ? '#f97316' : '#ef4444'),
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'AHI Events' }, grid: { color: '#f1f5f9' } },
+            x: { grid: { display: false } }
+        }
+    }
+});
+
+// Pressure vs Duration scatter
+const pressureData = {{ pressure_scatter_json|safe }};
+const pressureCats = [...new Set(pressureData.map(d => d.category))];
+const pDatasets = pressureCats.map(cat => ({
+    label: cat,
+    data: pressureData.filter(d => d.category === cat).map(d => ({ x: d.x, y: d.y })),
+    backgroundColor: COLORS[cat] || '#64748b',
+    pointRadius: 4,
+}));
+new Chart(document.getElementById('pressureChart').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: pDatasets },
+    options: {
+        responsive: true,
+        scales: {
+            x: { title: { display: true, text: 'Pressure (cmH2O)' }, grid: { color: '#f1f5f9' } },
+            y: { title: { display: true, text: 'Duration (seconds)' }, beginAtZero: true, grid: { color: '#f1f5f9' } }
+        }
+    }
+});
+
+// Duration Histogram
+const durHist = {{ duration_histogram_json|safe }};
+const durCats = Object.keys(durHist);
+if (durCats.length > 0) {
+    const binLabels = durHist[durCats[0]].map(b => b.label);
+    const durDatasets = durCats.map(cat => ({
+        label: cat,
+        data: durHist[cat].map(b => b.count),
+        backgroundColor: COLORS[cat] || '#64748b',
+        borderRadius: 3,
+    }));
+    new Chart(document.getElementById('durationHistChart').getContext('2d'), {
+        type: 'bar',
+        data: { labels: binLabels, datasets: durDatasets },
+        options: {
+            responsive: true,
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: true, title: { display: true, text: 'Count' }, grid: { color: '#f1f5f9' } }
+            },
+            plugins: { legend: { position: 'top' } }
+        }
+    });
+}
+</script>
+{% endblock %}

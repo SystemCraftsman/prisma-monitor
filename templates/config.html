@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Configuration - Prisma Monitor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Device Configuration</h1>
+</div>
+
+<div class="chart-row">
+    <div class="config-section chart-half">
+        <h2>Device Info</h2>
+        <table class="config-table">
+            <tr><td>Device Type</td><td>{{ device.device_type }}</td></tr>
+            <tr><td>Serial Number</td><td><strong>{{ device.serial_number }}</strong></td></tr>
+            <tr><td>Firmware</td><td>{{ device.fw_version }}</td></tr>
+            <tr><td>Build</td><td>{{ device.fw_build }}</td></tr>
+            <tr><td>PM Version</td><td>{{ device.pm_version }}</td></tr>
+            <tr><td>Boot Count</td><td>{{ boot_count }}</td></tr>
+            <tr><td>Therapy Count</td><td>{{ therapy_count }}</td></tr>
+        </table>
+    </div>
+
+    <div class="config-section chart-half">
+        <h2>Therapy Settings</h2>
+        <table class="config-table">
+            <tr><td>Mode</td><td><strong>{{ therapy.mode }}</strong></td></tr>
+            <tr><td>EPAP</td><td>{{ "{:.1}"|format(therapy.epap) }} cmH2O</td></tr>
+            <tr><td>IPAP</td><td>{{ "{:.1}"|format(therapy.ipap) }} cmH2O</td></tr>
+            <tr><td>IPAP Max</td><td>{{ "{:.1}"|format(therapy.ipap_max) }} cmH2O</td></tr>
+            <tr><td>EEPAP Range</td><td>{{ "{:.1}"|format(therapy.eepap_min) }} - {{ "{:.1}"|format(therapy.eepap_max) }} cmH2O</td></tr>
+            <tr><td>Humidifier</td><td>Level {{ therapy.humidifier_level }}</td></tr>
+            <tr><td>Auto Start</td><td>{% if therapy.auto_start %}Yes{% else %}No{% endif %}</td></tr>
+            <tr><td>Auto Stop</td><td>{% if therapy.auto_stop %}Yes{% else %}No{% endif %}</td></tr>
+            <tr><td>APAP Dynamic</td><td>{% if therapy.apap_dynamic %}Yes{% else %}No{% endif %}</td></tr>
+            <tr><td>Tube Type</td><td>{{ therapy.tube_type }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="config-section" id="config-changes-section" style="display:none">
+    <h2>Configuration Changes Across Sessions</h2>
+    <p class="chart-desc">Settings that changed between therapy sessions.</p>
+    <table id="config-changes-table">
+        <thead>
+            <tr>
+                <th>Session</th>
+                <th>Parameter</th>
+                <th>Previous Value</th>
+                <th>New Value</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+const changes = {{ config_changes_json|safe }};
+if (changes.length > 0) {
+    document.getElementById('config-changes-section').style.display = 'block';
+    const tbody = document.querySelector('#config-changes-table tbody');
+    changes.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>#${c.session}</td><td><strong>${c.param}</strong></td><td>${c.from || '—'}</td><td>${c.to}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+</script>
+{% endblock %}
