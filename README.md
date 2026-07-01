@@ -66,4 +66,4 @@ This application runs entirely locally. No data is sent to any external server. 
 
 ## License
 
-MIT
+Apache 2.0

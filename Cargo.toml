@@ -3,7 +3,7 @@ name = "prisma-monitor"
 version = "0.1.0"
 edition = "2024"
 description = "Web-based therapy data monitor for Lowenstein Prisma CPAP/BiPAP devices"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 axum = { version = "0.8", features = ["multipart"] }
